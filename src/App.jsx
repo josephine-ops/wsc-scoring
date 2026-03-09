@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "./supabase.js";
 
 const fontLink = document.createElement("link");
 fontLink.rel = "stylesheet";
@@ -655,6 +656,36 @@ export default function App() {
   const [submissions, setSubmissions] = useState([]);
   const [toast, setToast] = useState(null);
   const [selectedSub, setSelectedSub] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Load submissions from Supabase on mount
+  useEffect(() => {
+    loadSubmissions();
+  }, []);
+
+  const loadSubmissions = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("submissions")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) {
+      showToast("⚠️ Could not load submissions.", "warn");
+    } else {
+      // Map Supabase rows back to the shape the app expects
+      const mapped = data.map(row => ({
+        id: row.id,
+        roundNum: row.round_num,
+        judgeName: row.judge_name,
+        room: row.room,
+        winner: row.winner,
+        aff: row.aff,
+        neg: row.neg,
+      }));
+      setSubmissions(mapped);
+    }
+    setLoading(false);
+  };
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -663,13 +694,28 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const errs = getValidationErrors(form);
     const totalErrors = Object.values(errs).flat().length;
-    if (totalErrors > 0) return; // button should be disabled, but guard anyway
+    if (totalErrors > 0) return;
     const affDups = getDupLetters(form.aff.speakers).length > 0;
     const negDups = getDupLetters(form.neg.speakers).length > 0;
-    setSubmissions(s => [{ ...form, id: Date.now() }, ...s]);
+
+    const { error } = await supabase.from("submissions").insert({
+      round_num: form.roundNum,
+      judge_name: form.judgeName,
+      room: form.room,
+      winner: form.winner,
+      aff: form.aff,
+      neg: form.neg,
+    });
+
+    if (error) {
+      showToast("⚠️ Failed to save submission. Please try again.", "warn");
+      return;
+    }
+
+    await loadSubmissions();
     setForm(mkForm());
     setTab("dashboard");
     if (affDups || negDups) {
@@ -873,7 +919,12 @@ export default function App() {
 
         {tab === "dashboard" && (
           <div className="fade-in">
-            {submissions.length === 0 ? (
+            {loading ? (
+              <div className="dash-empty">
+                <div className="icon">⏳</div>
+                <p>Loading submissions...</p>
+              </div>
+            ) : submissions.length === 0 ? (
               <div className="dash-empty">
                 <div className="icon">📋</div>
                 <p>No submissions yet.</p>
