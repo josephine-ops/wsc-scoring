@@ -730,11 +730,30 @@ export default function App() {
 
   // Auto-sync: retry every 30 seconds if there are queued items
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (getQueue().length > 0) syncQueue();
+    const interval = setInterval(async () => {
+      const queue = getQueue();
+      if (queue.length === 0) return;
+      const remaining = [];
+      for (const item of queue) {
+        try {
+          const { error } = await supabase.from("submissions").insert(item);
+          if (error) remaining.push(item);
+        } catch {
+          remaining.push(item);
+        }
+      }
+      saveQueue(remaining);
+      setQueueCount(remaining.length);
+      if (remaining.length < queue.length) {
+        const synced = queue.length - remaining.length;
+        setToast({ msg: `✅ ${synced} queued submission(s) synced!`, type: "ok" });
+        setTimeout(() => setToast(null), 3500);
+        const { data } = await supabase.from("submissions").select("*").order("created_at", { ascending: false });
+        if (data) setSubmissions(data.map(row => ({ id: row.id, roundNum: row.round_num, judgeName: row.judge_name, room: row.room, winner: row.winner, aff: row.aff, neg: row.neg })));
+      }
     }, 30000);
     return () => clearInterval(interval);
-  }, [syncQueue]);
+  }, []);
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
