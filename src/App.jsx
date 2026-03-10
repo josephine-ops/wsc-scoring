@@ -732,6 +732,7 @@ export default function App() {
   useEffect(() => {
     const interval = setInterval(async () => {
       const queue = getQueue();
+      console.log("Auto-sync tick, queue length:", queue.length);
       if (queue.length === 0) return;
       const remaining = [];
       for (const item of queue) {
