@@ -718,8 +718,12 @@ export default function App() {
     if (queue.length === 0) return;
     const remaining = [];
     for (const item of queue) {
-      const { error } = await supabase.from("submissions").insert(item);
-      if (error) remaining.push(item);
+      try {
+        const { error } = await supabase.from("submissions").insert(item);
+        if (error) remaining.push(item);
+      } catch {
+        remaining.push(item);
+      }
     }
     saveQueue(remaining);
     setQueueCount(remaining.length);
@@ -763,7 +767,13 @@ export default function App() {
       return;
     }
 
-    const { error } = await supabase.from("submissions").insert(payload);
+    let error = null;
+    try {
+      const result = await supabase.from("submissions").insert(payload);
+      error = result.error;
+    } catch {
+      error = { message: "Network error" };
+    }
 
     if (error) {
       // Fall back to offline queue
