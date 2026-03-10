@@ -439,20 +439,49 @@ const PAGES = [
 ];
 
 // ── TimerBlock ────────────────────────────────────────────────────────────────
-function TimerBlock({ duration, warningAt = 60, onDone, timerKey }) {
+function TimerBlock({ duration, warningAt = 60, onDone, timerKey, label = "" }) {
   const [timeLeft, setTimeLeft] = useState(duration);
   const [running, setRunning] = useState(false);
   const [started, setStarted] = useState(false);
   const [done, setDone] = useState(false);
   const [flash, setFlash] = useState(false);
   const intervalRef = useRef(null);
+  const wakeLockRef = useRef(null);
+  const origTitle = useRef(document.title);
 
   const triggerFlash = () => { setFlash(true); setTimeout(() => setFlash(false), 500); };
+
+  const acquireWakeLock = async () => {
+    try { if ("wakeLock" in navigator) wakeLockRef.current = await navigator.wakeLock.request("screen"); } catch {}
+  };
+  const releaseWakeLock = () => {
+    try { if (wakeLockRef.current) { wakeLockRef.current.release(); wakeLockRef.current = null; } } catch {}
+  };
+  const requestNotifPermission = async () => {
+    try { if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission(); } catch {}
+  };
+  const sendNotification = (title, body) => {
+    try { if ("Notification" in window && Notification.permission === "granted") new Notification(title, { body, icon: "/icon-192.svg" }); } catch {}
+  };
 
   useEffect(() => {
     setTimeLeft(duration);
     setRunning(false); setStarted(false); setDone(false);
+    document.title = origTitle.current;
+    releaseWakeLock();
   }, [timerKey]);
+
+  useEffect(() => {
+    if (running && !done) {
+      document.title = `⏱ ${formatTime(timeLeft)} — WSC Scoring`;
+    } else if (done) {
+      document.title = `⏰ Time's up! — WSC Scoring`;
+    }
+  }, [timeLeft, running, done]);
+
+  useEffect(() => {
+    return () => { document.title = origTitle.current; releaseWakeLock(); };
+  }, []);
 
   useEffect(() => {
     if (!running) return;
@@ -462,10 +491,15 @@ function TimerBlock({ duration, warningAt = 60, onDone, timerKey }) {
           clearInterval(intervalRef.current);
           setRunning(false); setDone(true);
           beep(2); triggerFlash();
+          releaseWakeLock();
+          sendNotification("⏰ Time's up!", label ? `${label} has ended.` : "Timer has ended.");
           if (onDone) onDone();
           return 0;
         }
-        if (warningAt > 0 && prev === warningAt + 1) { beep(1); triggerFlash(); }
+        if (warningAt > 0 && prev === warningAt + 1) {
+          beep(1); triggerFlash();
+          sendNotification("🔔 One minute left!", label ? `${label}: 1 minute remaining.` : "1 minute remaining.");
+        }
         return prev - 1;
       });
     }, 1000);
@@ -473,6 +507,21 @@ function TimerBlock({ duration, warningAt = 60, onDone, timerKey }) {
   }, [running]);
 
   const isWarning = warningAt > 0 && timeLeft <= warningAt && timeLeft > 0 && started;
+
+  const handleSkip = () => {
+    clearInterval(intervalRef.current);
+    setRunning(false); setDone(true);
+    document.title = `⏰ Time's up! — WSC Scoring`;
+    releaseWakeLock();
+    beep(2);
+    if (onDone) onDone();
+  };
+
+  const handleStart = async () => {
+    await requestNotifPermission();
+    await acquireWakeLock();
+    setStarted(true); setRunning(true);
+  };
 
   return (
     <div className="timer-block">
@@ -484,11 +533,16 @@ function TimerBlock({ duration, warningAt = 60, onDone, timerKey }) {
           : isWarning ? <span className="timer-hint warning">🔔 One minute remaining</span>
           : <span>&nbsp;</span>}
       </div>
-      {!started
-        ? <button className="timer-btn primary" onClick={() => { setStarted(true); setRunning(true); }}>▶ Start Timer</button>
-        : !done
-          ? <button className="timer-btn secondary" onClick={() => setRunning(r => !r)}>{running ? "⏸ Pause" : "▶ Resume"}</button>
-          : null}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        {!started
+          ? <button className="timer-btn primary" onClick={handleStart}>▶ Start Timer</button>
+          : !done
+            ? <>
+                <button className="timer-btn secondary" onClick={() => setRunning(r => !r)}>{running ? "⏸ Pause" : "▶ Resume"}</button>
+                <button className="timer-btn secondary" onClick={handleSkip} style={{ fontSize: 11 }}>Skip ⏭</button>
+              </>
+            : null}
+      </div>
     </div>
   );
 }
@@ -590,7 +644,7 @@ function PrepPage({ onNext }) {
       <div className="card">
         <div className="card-head"><span className="card-title">⏱ Prep Timer</span></div>
         <div className="card-body" style={{ textAlign: "center" }}>
-          <TimerBlock duration={15 * 60} warningAt={60} onDone={() => setDone(true)} timerKey="prep" />
+          <TimerBlock duration={15 * 60} warningAt={60} onDone={() => setDone(true)} timerKey="prep" label="Prep Time" />
         </div>
       </div>
 
@@ -650,7 +704,7 @@ function SpeakerPage({ side, idx, form, onSpeakerChange, onNext, isLast }) {
       <div className="card">
         <div className="card-head"><span className="card-title">⏱ Speaker Timer — 4 minutes</span></div>
         <div className="card-body" style={{ textAlign: "center" }}>
-          <TimerBlock duration={4 * 60} warningAt={60} timerKey={`${side}-${idx}`} />
+          <TimerBlock duration={4 * 60} warningAt={60} timerKey={`${side}-${idx}`} label={`${ordinal} ${sideLabel} Speaker`} />
         </div>
       </div>
 
@@ -697,7 +751,7 @@ function TransitionPage({ nextLabel, transIdx, onNext }) {
       <div className="card">
         <div className="card-head"><span className="card-title">⏱ Transition Timer</span></div>
         <div className="card-body" style={{ textAlign: "center" }}>
-          <TimerBlock duration={60} warningAt={0} timerKey={`trans-${transIdx}`} />
+          <TimerBlock duration={60} warningAt={0} timerKey={`trans-${transIdx}`} label="Transition" />
         </div>
       </div>
 
@@ -763,7 +817,7 @@ function FinalPage({ form, onTeamChange, onFieldChange, onSubmit, submitting }) 
                   <div className="script-text">"Before I announce the winning side, each team must give up to 90 seconds of feedback to the other team. You can divide these 90 seconds however you'd like. Your feedback must be kind, courteous, and constructive. Do not keep arguing. Instead, focus on how the other team could do even better in their next debate. You now have 90 seconds to plan your feedback. I am not allowed to give my own feedback or to explain my reasons for deciding the debate. Your prep time starts now."</div>
                 </div>
                 <div style={{ textAlign: "center" }}>
-                  <TimerBlock duration={90} warningAt={0} timerKey="feedback-prep" onDone={() => setFeedbackPhase(1)} />
+                  <TimerBlock duration={90} warningAt={0} timerKey="feedback-prep" label="In-Team Prep" onDone={() => setFeedbackPhase(1)} />
                 </div>
               </>
             ) : <div className="phase-done-badge">✓ Complete</div>}
@@ -780,7 +834,7 @@ function FinalPage({ form, onTeamChange, onFieldChange, onSubmit, submitting }) 
                     <div className="script-text">"Affirmative Team, your feedback please."</div>
                   </div>
                   <div style={{ textAlign: "center" }}>
-                    <TimerBlock duration={90} warningAt={0} timerKey="feedback-aff" onDone={() => setFeedbackPhase(2)} />
+                    <TimerBlock duration={90} warningAt={0} timerKey="feedback-aff" label="Affirmative Feedback" onDone={() => setFeedbackPhase(2)} />
                   </div>
                 </>
               ) : <div className="phase-done-badge">✓ Complete</div>}
@@ -798,7 +852,7 @@ function FinalPage({ form, onTeamChange, onFieldChange, onSubmit, submitting }) 
                     <div className="script-text">"Negative Team, your feedback please."</div>
                   </div>
                   <div style={{ textAlign: "center" }}>
-                    <TimerBlock duration={90} warningAt={0} timerKey="feedback-neg" onDone={() => setFeedbackPhase(3)} />
+                    <TimerBlock duration={90} warningAt={0} timerKey="feedback-neg" label="Negative Feedback" onDone={() => setFeedbackPhase(3)} />
                   </div>
                 </>
               ) : <div className="phase-done-badge">✓ Complete</div>}
