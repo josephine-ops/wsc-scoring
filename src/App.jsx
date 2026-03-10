@@ -650,6 +650,15 @@ function ValidationChecklist({ form }) {
 }
 
 // ── Main App ──────────────────────────────────────────────────────────────────
+const QUEUE_KEY = "wsc_offline_queue";
+
+function getQueue() {
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); } catch { return []; }
+}
+function saveQueue(q) {
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+}
+
 export default function App() {
   const [tab, setTab] = useState("judge");
   const [form, setForm] = useState(mkForm());
@@ -657,34 +666,65 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [selectedSub, setSelectedSub] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [queueCount, setQueueCount] = useState(getQueue().length);
 
-  // Load submissions from Supabase on mount
   useEffect(() => {
     loadSubmissions();
+    const handleOnline = () => {
+      setIsOnline(true);
+      syncQueue();
+    };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
   }, []);
 
   const loadSubmissions = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("submissions")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) {
+    try {
+      const { data, error } = await supabase
+        .from("submissions")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) {
+        showToast("⚠️ Could not load submissions.", "warn");
+      } else {
+        const mapped = data.map(row => ({
+          id: row.id,
+          roundNum: row.round_num,
+          judgeName: row.judge_name,
+          room: row.room,
+          winner: row.winner,
+          aff: row.aff,
+          neg: row.neg,
+        }));
+        setSubmissions(mapped);
+      }
+    } catch {
       showToast("⚠️ Could not load submissions.", "warn");
-    } else {
-      // Map Supabase rows back to the shape the app expects
-      const mapped = data.map(row => ({
-        id: row.id,
-        roundNum: row.round_num,
-        judgeName: row.judge_name,
-        room: row.room,
-        winner: row.winner,
-        aff: row.aff,
-        neg: row.neg,
-      }));
-      setSubmissions(mapped);
     }
     setLoading(false);
+  };
+
+  const syncQueue = async () => {
+    const queue = getQueue();
+    if (queue.length === 0) return;
+    const remaining = [];
+    for (const item of queue) {
+      const { error } = await supabase.from("submissions").insert(item);
+      if (error) remaining.push(item);
+    }
+    saveQueue(remaining);
+    setQueueCount(remaining.length);
+    if (remaining.length < queue.length) {
+      showToast(`✅ ${queue.length - remaining.length} queued submission(s) synced!`);
+      await loadSubmissions();
+    }
   };
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -701,17 +741,37 @@ export default function App() {
     const affDups = getDupLetters(form.aff.speakers).length > 0;
     const negDups = getDupLetters(form.neg.speakers).length > 0;
 
-    const { error } = await supabase.from("submissions").insert({
+    const payload = {
       round_num: form.roundNum,
       judge_name: form.judgeName,
       room: form.room,
       winner: form.winner,
       aff: form.aff,
       neg: form.neg,
-    });
+    };
+
+    if (!isOnline) {
+      const queue = getQueue();
+      queue.push(payload);
+      saveQueue(queue);
+      setQueueCount(queue.length);
+      setForm(mkForm());
+      setTab("dashboard");
+      showToast("📴 Saved offline — will sync when connected.", "warn");
+      return;
+    }
+
+    const { error } = await supabase.from("submissions").insert(payload);
 
     if (error) {
-      showToast("⚠️ Failed to save submission. Please try again.", "warn");
+      // Fall back to offline queue
+      const queue = getQueue();
+      queue.push(payload);
+      saveQueue(queue);
+      setQueueCount(queue.length);
+      setForm(mkForm());
+      setTab("dashboard");
+      showToast("📴 Saved offline — will sync when connected.", "warn");
       return;
     }
 
@@ -744,7 +804,19 @@ export default function App() {
             <div className="header-sub">Debate Scoring</div>
           </div>
         </div>
+        {!isOnline && <span style={{ background: "rgba(0,0,0,0.3)", color: "white", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>📴 Offline</span>}
       </div>
+
+      {!isOnline && (
+        <div style={{ background: "#fff3cd", borderBottom: "1px solid #ffc107", padding: "8px 16px", fontSize: 12, fontWeight: 600, color: "#856404", textAlign: "center" }}>
+          No internet connection — submissions will be saved and synced automatically when you reconnect.
+        </div>
+      )}
+      {isOnline && queueCount > 0 && (
+        <div style={{ background: "#d4edda", borderBottom: "1px solid #28a745", padding: "8px 16px", fontSize: 12, fontWeight: 600, color: "#155724", textAlign: "center", cursor: "pointer" }} onClick={syncQueue}>
+          🔄 {queueCount} offline submission(s) pending — tap to sync now
+        </div>
+      )}
 
       <div className="tabs">
         <button className={`tab ${tab === "judge" ? "active" : ""}`} onClick={() => setTab("judge")}>📋 Judge Form</button>
