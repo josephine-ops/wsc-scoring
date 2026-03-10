@@ -671,10 +671,7 @@ export default function App() {
 
   useEffect(() => {
     loadSubmissions();
-    const handleOnline = () => {
-      setIsOnline(true);
-      syncQueue();
-    };
+    const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
@@ -683,6 +680,11 @@ export default function App() {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  // Auto-sync whenever we come back online
+  useEffect(() => {
+    if (isOnline) syncQueue();
+  }, [isOnline]);
 
   const loadSubmissions = async () => {
     setLoading(true);
