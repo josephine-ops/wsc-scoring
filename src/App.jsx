@@ -681,10 +681,13 @@ export default function App() {
     };
   }, []);
 
-  // Auto-sync whenever we come back online
+  // Auto-sync: retry every 30 seconds if there are queued items
   useEffect(() => {
-    if (isOnline) syncQueue();
-  }, [isOnline]);
+    const interval = setInterval(() => {
+      if (getQueue().length > 0) syncQueue();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const loadSubmissions = async () => {
     setLoading(true);
