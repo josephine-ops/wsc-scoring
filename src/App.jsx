@@ -668,6 +668,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [queueCount, setQueueCount] = useState(getQueue().length);
+  const [isAuthed, setIsAuthed] = useState(() => sessionStorage.getItem("wsc_authed") === "true");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [authError, setAuthError] = useState(false);
 
   useEffect(() => {
     loadSubmissions();
@@ -732,8 +735,7 @@ export default function App() {
   useEffect(() => {
     const interval = setInterval(async () => {
       const queue = getQueue();
-      console.log("Auto-sync tick, queue length:", queue.length);
-      if (queue.length === 0) return;
+if (queue.length === 0) return;
       const remaining = [];
       for (const item of queue) {
         try {
@@ -755,6 +757,25 @@ export default function App() {
     }, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleLogin = () => {
+    const correct = import.meta.env.VITE_ORGANIZER_PASSWORD;
+    if (passwordInput === correct) {
+      sessionStorage.setItem("wsc_authed", "true");
+      setIsAuthed(true);
+      setAuthError(false);
+      setPasswordInput("");
+    } else {
+      setAuthError(true);
+      setPasswordInput("");
+    }
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("wsc_authed");
+    setIsAuthed(false);
+    setTab("judge");
+  };
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -1026,31 +1047,55 @@ export default function App() {
 
         {tab === "dashboard" && (
           <div className="fade-in">
-            {loading ? (
-              <div className="dash-empty">
-                <div className="icon">⏳</div>
-                <p>Loading submissions...</p>
-              </div>
-            ) : submissions.length === 0 ? (
-              <div className="dash-empty">
-                <div className="icon">📋</div>
-                <p>No submissions yet.</p>
-                <p style={{ marginTop: 6, fontSize: 13 }}>Judges submit from the Judge Form tab.</p>
+            {!isAuthed ? (
+              <div style={{ maxWidth: 340, margin: "60px auto 0", textAlign: "center" }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🔒</div>
+                <div style={{ fontFamily: "Nunito, sans-serif", fontSize: 20, fontWeight: 800, color: "var(--teal-dark)", marginBottom: 6 }}>Organizer Access</div>
+                <div style={{ fontSize: 13, color: "var(--text-light)", fontWeight: 600, marginBottom: 24 }}>Enter the organizer password to view submissions</div>
+                <input
+                  className="input"
+                  type="password"
+                  placeholder="Password"
+                  value={passwordInput}
+                  onChange={e => { setPasswordInput(e.target.value); setAuthError(false); }}
+                  onKeyDown={e => e.key === "Enter" && handleLogin()}
+                  style={{ marginBottom: 10, textAlign: "center", borderColor: authError ? "var(--red)" : undefined }}
+                />
+                {authError && <div style={{ color: "var(--red)", fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Incorrect password. Try again.</div>}
+                <button className="submit-btn" onClick={handleLogin} disabled={!passwordInput}>Unlock Dashboard →</button>
               </div>
             ) : (
               <>
-                <div className="stats-bar">
-                  <div className="stat-card"><div className="stat-val">{submissions.length}</div><div className="stat-label">Rounds</div></div>
-                  <div className="stat-card"><div className="stat-val" style={{ color: "var(--aff)" }}>{affWins}</div><div className="stat-label">Aff Wins</div></div>
-                  <div className="stat-card"><div className="stat-val" style={{ color: "var(--neg)" }}>{negWins}</div><div className="stat-label">Neg Wins</div></div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                  <button onClick={handleLogout} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 700, color: "var(--text-light)", cursor: "pointer" }}>🔓 Log out</button>
                 </div>
-                <div className="section-hd">All Submissions</div>
-                <div className="submissions-list">
-                  {submissions.map(sub => (
-                    <SubmissionCard key={sub.id} sub={sub} onClick={() => setSelectedSub(sub)} />
-                  ))}
-                </div>
-                <div style={{ height: 32 }} />
+                {loading ? (
+                  <div className="dash-empty">
+                    <div className="icon">⏳</div>
+                    <p>Loading submissions...</p>
+                  </div>
+                ) : submissions.length === 0 ? (
+                  <div className="dash-empty">
+                    <div className="icon">📋</div>
+                    <p>No submissions yet.</p>
+                    <p style={{ marginTop: 6, fontSize: 13 }}>Judges submit from the Judge Form tab.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="stats-bar">
+                      <div className="stat-card"><div className="stat-val">{submissions.length}</div><div className="stat-label">Rounds</div></div>
+                      <div className="stat-card"><div className="stat-val" style={{ color: "var(--aff)" }}>{affWins}</div><div className="stat-label">Aff Wins</div></div>
+                      <div className="stat-card"><div className="stat-val" style={{ color: "var(--neg)" }}>{negWins}</div><div className="stat-label">Neg Wins</div></div>
+                    </div>
+                    <div className="section-hd">All Submissions</div>
+                    <div className="submissions-list">
+                      {submissions.map(sub => (
+                        <SubmissionCard key={sub.id} sub={sub} onClick={() => setSelectedSub(sub)} />
+                      ))}
+                    </div>
+                    <div style={{ height: 32 }} />
+                  </>
+                )}
               </>
             )}
           </div>
