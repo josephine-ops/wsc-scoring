@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase.js";
 
 const fontLink = document.createElement("link");
@@ -681,14 +681,6 @@ export default function App() {
     };
   }, []);
 
-  // Auto-sync: retry every 30 seconds if there are queued items
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (getQueue().length > 0) syncQueue();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
   const loadSubmissions = async () => {
     setLoading(true);
     try {
@@ -716,7 +708,7 @@ export default function App() {
     setLoading(false);
   };
 
-  const syncQueue = async () => {
+  const syncQueue = useCallback(async () => {
     const queue = getQueue();
     if (queue.length === 0) return;
     const remaining = [];
@@ -734,7 +726,15 @@ export default function App() {
       showToast(`✅ ${queue.length - remaining.length} queued submission(s) synced!`);
       await loadSubmissions();
     }
-  };
+  }, []);
+
+  // Auto-sync: retry every 30 seconds if there are queued items
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (getQueue().length > 0) syncQueue();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [syncQueue]);
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
